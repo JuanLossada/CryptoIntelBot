@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Crypto Intel Bot v4 - by Juancho
+Crypto Intel Bot v5 - by Juancho
+- Fuentes de alta fiabilidad exclusivamente (90%+ credibilidad)
 - Cutoff = timestamp ultimo envio (nunca noticias viejas)
 - Filtro de calidad agresivo (solo noticias que mueven mercado)
 - CoinGecko batch (1 sola llamada)
@@ -113,20 +114,21 @@ NOISE_KEYWORDS = [
 ]
 
 # ══ RSS SOURCES ═══════════════════════════════════════════════
+# Solo fuentes con fiabilidad/credibilidad superior al 90%
+# Fuentes verificadas, editoriales profesionales o instituciones oficiales
 RSS_SOURCES = [
-    ("CoinDesk",        "https://www.coindesk.com/arc/outboundfeeds/rss/",            3, "📰"),
-    ("The Block",       "https://www.theblock.co/rss.xml",                            3, "🧱"),
-    ("CoinTelegraph",   "https://cointelegraph.com/rss",                              2, "📡"),
-    ("Decrypt",         "https://decrypt.co/feed",                                    2, "🔓"),
-    ("Bitcoin Magazine","https://bitcoinmagazine.com/.rss/full/",                     2, "₿"),
-    ("BeInCrypto",      "https://beincrypto.com/feed/",                               2, "🔎"),
-    ("NewsBTC",         "https://www.newsbtc.com/feed/",                              2, "📊"),
-    ("Bitcoinist",      "https://bitcoinist.com/feed/",                               2, "🟠"),
-    ("AMBCrypto",       "https://ambcrypto.com/feed/",                                2, "🔵"),
-    ("U.Today",         "https://u.today/rss",                                        2, "📣"),
-    ("Kitco",           "https://www.kitco.com/rss/",                                 2, "🥇"),
-    ("Reuters Biz",     "https://feeds.reuters.com/reuters/businessNews",             2, "🌐"),
-    ("Investing.com",   "https://www.investing.com/rss/news_301.rss",                 2, "📈"),
+    # ── Crypto nativas de alto estándar editorial ──────────────
+    ("CoinDesk",         "https://www.coindesk.com/arc/outboundfeeds/rss/",           3, "📰"),
+    ("The Block",        "https://www.theblock.co/rss.xml",                           3, "🧱"),
+    ("Decrypt",          "https://decrypt.co/feed",                                   2, "🔓"),
+    # ── Finanzas globales / macro (mayor precisión factual) ────
+    ("Reuters Business", "https://feeds.reuters.com/reuters/businessNews",            3, "🌐"),
+    ("WSJ Markets",      "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",             3, "📊"),
+    # ── Metales preciosos ──────────────────────────────────────
+    ("Kitco News",       "https://www.kitco.com/rss/",                                2, "🥇"),
+    # ── Fuentes oficiales / regulatorias (100% verificadas) ───
+    ("Federal Reserve",  "https://www.federalreserve.gov/feeds/press_all.xml",        3, "🏦"),
+    ("SEC Releases",     "https://www.sec.gov/rss/litigation/litreleases.xml",        3, "⚖️"),
 ]
 
 # ══ EMOJIS ═══════════════════════════════════════════════════
@@ -364,7 +366,7 @@ def send_header(count):
     now = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
     send_telegram(
         "━━━━━━━━━━━━━━━━━━━━━\n"
-        "🤖 <b>CRYPTO INTEL BOT v4</b>\n"
+        "🤖 <b>CRYPTO INTEL BOT v5</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━\n"
         "📬 {} noticia(s) de alto impacto\n"
         "🕐 {}".format(count, now)
