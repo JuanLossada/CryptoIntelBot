@@ -1,12 +1,12 @@
 name: Crypto Intel Bot 🤖
 
 on:
-  # ── Ejecutar cada hora en punto ──────────────────────────
   schedule:
-    - cron: '0 * * * *'   # Cada hora: 00:00, 01:00, 02:00... UTC
-
-  # ── También permite ejecutarlo manualmente desde GitHub ──
+    - cron: '0 * * * *'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   run-bot:
@@ -14,25 +14,28 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      # 1. Descargar el código del repo
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Configurar Python 3.11
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
-      # 3. Instalar dependencias
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # 4. Ejecutar el bot
-      #    Los secrets se inyectan como variables de entorno
       - name: Run Crypto Intel Bot
         env:
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python bot.py
+
+      - name: Guardar estado (anti-duplicados + timestamp)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bot_state.json
+          git diff --staged --quiet || git commit -m "chore: update bot state [skip ci]"
+          git push
