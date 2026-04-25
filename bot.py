@@ -1,116 +1,96 @@
 #!/usr/bin/env python3
 """
-╔══════════════════════════════════════════════════════════╗
-║        CRYPTO & MARKETS INTEL BOT  –  by Juancho        ║
-║  Fuentes: CoinDesk · CoinTelegraph · The Block · más    ║
-║  Activos: Top-20 Altcoins · Zcash · Oro · Plata · Cobre ║
-╚══════════════════════════════════════════════════════════╝
-
-Ejecuta cada hora vía GitHub Actions.
-Envía SOLO noticias con alto potencial de impacto en precio.
-100% RSS — sin APIs de pago requeridas.
+Crypto Intel Bot v2 - by Juancho
+Mejoras: precio CoinGecko en tiempo real + deduplicacion entre ejecuciones
 """
 
 import os
-import sys
-import json
+import re
 import time
 import hashlib
+import calendar
 import requests
 import feedparser
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-# ══════════════════════════════════════════════════════════
-#  CONFIGURACIÓN  (variables de entorno / GitHub Secrets)
-# ══════════════════════════════════════════════════════════
-
+# ══ CONFIGURACION ══════════════════════════════════════════
 TELEGRAM_TOKEN   = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-LOOK_BACK_HOURS  = 1.5   # Ventana de tiempo hacia atrás (horas)
-MAX_NEWS_PER_RUN = 6     # Máximo de noticias por ejecución (evitar spam)
-MIN_SCORE        = 4     # Puntuación mínima para enviar una noticia
+LOOK_BACK_HOURS  = 1.0   # Exactamente 1h -> sin solapamiento entre ejecuciones
+MAX_NEWS_PER_RUN = 6
+MIN_SCORE        = 4
 
-# ══════════════════════════════════════════════════════════
-#  ACTIVOS A RASTREAR
-# ══════════════════════════════════════════════════════════
+# ══ COINGECKO IDs ══════════════════════════════════════════
+COINGECKO_IDS = {
+    "bitcoin": "bitcoin",        "btc": "bitcoin",
+    "ethereum": "ethereum",      "eth": "ethereum",
+    "bnb": "binancecoin",        "binance coin": "binancecoin",
+    "xrp": "ripple",             "ripple": "ripple",
+    "solana": "solana",          "sol": "solana",
+    "cardano": "cardano",        "ada": "cardano",
+    "dogecoin": "dogecoin",      "doge": "dogecoin",
+    "tron": "tron",              "trx": "tron",
+    "avalanche": "avalanche-2",  "avax": "avalanche-2",
+    "polkadot": "polkadot",      "dot": "polkadot",
+    "chainlink": "chainlink",    "link": "chainlink",
+    "polygon": "matic-network",  "matic": "matic-network",
+    "litecoin": "litecoin",      "ltc": "litecoin",
+    "uniswap": "uniswap",        "uni": "uniswap",
+    "cosmos": "cosmos",          "atom": "cosmos",
+    "stellar": "stellar",        "xlm": "stellar",
+    "filecoin": "filecoin",      "fil": "filecoin",
+    "algorand": "algorand",      "algo": "algorand",
+    "ethereum classic": "ethereum-classic", "etc": "ethereum-classic",
+    "zcash": "zcash",            "zec": "zcash",
+}
 
+# ══ ACTIVOS ═════════════════════════════════════════════════
 COIN_KEYWORDS = [
-    # ── Top 20 por market cap ──────────────────────────────
-    "bitcoin", "btc",
-    "ethereum", "eth",
-    "bnb", "binance coin",
-    "xrp", "ripple",
-    "solana", "sol",
-    "cardano", "ada",
-    "dogecoin", "doge",
-    "tron", "trx",
-    "avalanche", "avax",
-    "polkadot", "dot",
-    "chainlink", "link",
-    "polygon", "matic", "pol",
-    "litecoin", "ltc",
-    "uniswap", "uni",
-    "cosmos", "atom",
-    "stellar", "xlm",
-    "filecoin", "fil",
-    "algorand", "algo",
-    "ethereum classic", "etc",
-    # ── Solicitados por Juancho ────────────────────────────
-    "zcash", "zec",
+    "bitcoin", "btc", "ethereum", "eth", "bnb", "binance coin",
+    "xrp", "ripple", "solana", "sol", "cardano", "ada",
+    "dogecoin", "doge", "tron", "trx", "avalanche", "avax",
+    "polkadot", "dot", "chainlink", "link", "polygon", "matic", "pol",
+    "litecoin", "ltc", "uniswap", "uni", "cosmos", "atom",
+    "stellar", "xlm", "filecoin", "fil", "algorand", "algo",
+    "ethereum classic", "etc", "zcash", "zec",
     "gold", "oro", "xau", "xauusd",
     "silver", "plata", "xag", "xagusd",
     "copper", "cobre",
-    # ── Exchanges & ecosistema ─────────────────────────────
     "coinbase", "kraken", "bybit", "okx",
     "defi", "nft", "web3", "stablecoin", "usdt", "usdc",
     "blackrock", "fidelity", "microstrategy", "grayscale",
 ]
 
-# ══════════════════════════════════════════════════════════
-#  PALABRAS CLAVE DE ALTO IMPACTO  (cada match = +2 puntos)
-# ══════════════════════════════════════════════════════════
-
+# ══ IMPACTO ══════════════════════════════════════════════════
 IMPACT_KEYWORDS = [
-    # Movimiento de precio
     "surge", "rally", "crash", "plunge", "pump", "dump", "soar",
     "spike", "breakout", "breakdown", "correction", "rebound",
     "all-time high", "ath", "all time high", "record",
-    # Macro / Economía global
     "federal reserve", "fed rate", "interest rate", "inflation",
     "cpi", "recession", "gdp", "quantitative", "fomc", "rate cut",
     "rate hike", "treasury", "dollar index", "dxy",
-    # Regulación
     "sec", "cftc", "regulation", "ban", "banned", "approve", "approved",
     "etf", "spot etf", "lawsuit", "fine", "sanction", "compliance",
     "legal", "court", "congress", "senate", "bill",
-    # Institucional / Ballenas
     "blackrock", "fidelity", "grayscale", "microstrategy",
     "institutional", "whale", "billion", "fund", "hedge fund",
-    "reserve", "treasury buy", "accumulate",
-    # Eventos técnicos críticos
+    "reserve", "accumulate",
     "halving", "hard fork", "upgrade", "exploit", "hack", "breach",
     "vulnerability", "attack", "stolen", "bug", "emergency",
     "bridge hack", "protocol", "liquidation", "liquidated",
-    # Adopción / Listados
     "launch", "partnership", "integration", "adoption",
     "listed", "delisted", "listing", "mainnet",
     "payment", "merchant", "nation", "country", "government",
-    # Metales / Commodities
     "gold rally", "silver surge", "copper demand",
     "inflation hedge", "safe haven", "commodity",
 ]
 
-# ══════════════════════════════════════════════════════════
-#  FUENTES RSS  (nombre, url, peso_base, emoji)
-# ══════════════════════════════════════════════════════════
-
+# ══ RSS SOURCES ═══════════════════════════════════════════════
 RSS_SOURCES = [
-    # ── Peso 3: fuentes premium, alta fiabilidad ───────────
     ("CoinDesk",        "https://www.coindesk.com/arc/outboundfeeds/rss/",            3, "📰"),
     ("The Block",       "https://www.theblock.co/rss.xml",                            3, "🧱"),
-    # ── Peso 2: volumen alto, buena cobertura ─────────────
     ("CoinTelegraph",   "https://cointelegraph.com/rss",                              2, "📡"),
     ("Decrypt",         "https://decrypt.co/feed",                                    2, "🔓"),
     ("Bitcoin Magazine","https://bitcoinmagazine.com/.rss/full/",                     2, "₿"),
@@ -119,16 +99,12 @@ RSS_SOURCES = [
     ("Bitcoinist",      "https://bitcoinist.com/feed/",                               2, "🟠"),
     ("AMBCrypto",       "https://ambcrypto.com/feed/",                                2, "🔵"),
     ("U.Today",         "https://u.today/rss",                                        2, "📣"),
-    # ── Peso 2: metales y macro ───────────────────────────
     ("Kitco",           "https://www.kitco.com/rss/",                                 2, "🥇"),
     ("Reuters Biz",     "https://feeds.reuters.com/reuters/businessNews",             2, "🌐"),
     ("Investing.com",   "https://www.investing.com/rss/news_301.rss",                 2, "📈"),
 ]
 
-# ══════════════════════════════════════════════════════════
-#  EMOJIS  para formato Telegram
-# ══════════════════════════════════════════════════════════
-
+# ══ EMOJIS ═══════════════════════════════════════════════════
 COIN_EMOJIS = {
     "btc": "₿", "bitcoin": "₿",
     "eth": "🔷", "ethereum": "🔷",
@@ -152,49 +128,75 @@ IMPACT_EMOJIS = {
     "ban": "🔴🚫", "banned": "🔴🚫", "lawsuit": "🔴⚖️",
     "surge": "🟢🚀", "rally": "🟢📈", "pump": "🟢📈",
     "ath": "🟢🏆", "all-time high": "🟢🏆", "record": "🟢🏆",
-    "etf": "🏦", "halving": "✂️",
-    "whale": "🐋", "blackrock": "🏦",
+    "etf": "🏦", "halving": "✂️", "whale": "🐋", "blackrock": "🏦",
 }
 
 
-# ══════════════════════════════════════════════════════════
-#  FUNCIONES PRINCIPALES
-# ══════════════════════════════════════════════════════════
+# ══ COINGECKO FUNCIONES ═══════════════════════════════════════
 
-def news_id(title: str, url: str) -> str:
-    """Hash único para deduplicar noticias."""
+def detect_coin(title):
+    title_lower = title.lower()
+    for keyword, cg_id in COINGECKO_IDS.items():
+        if keyword in title_lower:
+            return cg_id
+    return None
+
+
+def get_price(coingecko_id):
+    url = (
+        "https://api.coingecko.com/api/v3/simple/price"
+        "?ids=" + coingecko_id + "&vs_currencies=usd&include_24hr_change=true"
+    )
+    try:
+        resp = requests.get(url, timeout=10, headers={"Accept": "application/json"})
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        if coingecko_id not in data:
+            return None
+        price  = data[coingecko_id].get("usd", 0)
+        change = data[coingecko_id].get("usd_24h_change", 0)
+        return {"price": price, "change_24h": round(change, 2)}
+    except Exception:
+        return None
+
+
+def format_price(price):
+    if price >= 1000:
+        return "${:,.0f}".format(price)
+    elif price >= 1:
+        return "${:,.2f}".format(price)
+    else:
+        return "${:.4f}".format(price)
+
+
+def format_change(change):
+    arrow = "🟢▲" if change >= 0 else "🔴▼"
+    return "{} {:.2f}%".format(arrow, abs(change))
+
+
+# ══ FUNCIONES PRINCIPALES ════════════════════════════════════
+
+def news_id(title, url):
     raw = (title + url).lower().encode()
     return hashlib.md5(raw).hexdigest()[:12]
 
 
-def score_article(title: str, summary: str = "") -> int:
-    """
-    Puntúa una noticia por relevancia e impacto potencial.
-    Returns: int (0-30+). Se envía si score >= MIN_SCORE.
-    """
+def score_article(title, summary=""):
     text = (title + " " + summary).lower()
     score = 0
-
-    # +1 por cada cripto/activo mencionado (max 4)
-    coin_hits = sum(1 for kw in COIN_KEYWORDS if kw in text)
+    coin_hits   = sum(1 for kw in COIN_KEYWORDS if kw in text)
     score += min(coin_hits * 1, 4)
-
-    # +2 por cada keyword de impacto (max 12)
     impact_hits = sum(1 for kw in IMPACT_KEYWORDS if kw in text)
     score += min(impact_hits * 2, 12)
-
-    # Bonus: número grande mencionado (billones = muy relevante)
-    import re
     if re.search(r'\$[\d,]+\s*(billion|trillion|million)', text):
         score += 3
     if re.search(r'\d+%', text):
         score += 1
-
     return score
 
 
-def get_alert_emoji(title: str) -> str:
-    """Devuelve emoji de alerta según el tipo de noticia."""
+def get_alert_emoji(title):
     title_lower = title.lower()
     for kw, emoji in IMPACT_EMOJIS.items():
         if kw in title_lower:
@@ -202,8 +204,7 @@ def get_alert_emoji(title: str) -> str:
     return "🔔"
 
 
-def get_coin_emoji(title: str) -> str:
-    """Detecta el activo principal y devuelve su emoji."""
+def get_coin_emoji(title):
     title_lower = title.lower()
     for kw, emoji in COIN_EMOJIS.items():
         if kw in title_lower:
@@ -211,80 +212,81 @@ def get_coin_emoji(title: str) -> str:
     return ""
 
 
-def fetch_rss(name: str, url: str, weight: int, emoji: str, cutoff: datetime) -> list[dict]:
-    """Obtiene y filtra artículos de un feed RSS."""
+def fetch_rss(name, url, weight, emoji, cutoff):
     results = []
     try:
         feed = feedparser.parse(url)
         for entry in feed.entries:
             try:
-                # Parsear fecha de publicación
                 if hasattr(entry, "published_parsed") and entry.published_parsed:
-                    import calendar
                     pub = datetime.fromtimestamp(
                         calendar.timegm(entry.published_parsed), tz=timezone.utc
                     )
                 elif hasattr(entry, "updated_parsed") and entry.updated_parsed:
-                    import calendar
                     pub = datetime.fromtimestamp(
                         calendar.timegm(entry.updated_parsed), tz=timezone.utc
                     )
                 else:
-                    continue  # Sin fecha, omitir
-
+                    continue
                 if pub < cutoff:
                     continue
-
-                title   = getattr(entry, "title", "").strip()
-                link    = getattr(entry, "link",  "").strip()
+                title   = getattr(entry, "title",   "").strip()
+                link    = getattr(entry, "link",    "").strip()
                 summary = getattr(entry, "summary", "")[:300]
-
                 if not title or not link:
                     continue
-
-                score = score_article(title, summary) + weight  # peso base de la fuente
-
+                score = score_article(title, summary) + weight
                 results.append({
-                    "id":      news_id(title, link),
-                    "title":   title,
-                    "url":     link,
-                    "source":  name,
-                    "emoji":   emoji,
-                    "score":   score,
-                    "pub":     pub,
+                    "id":     news_id(title, link),
+                    "title":  title,
+                    "url":    link,
+                    "source": name,
+                    "emoji":  emoji,
+                    "score":  score,
+                    "pub":    pub,
                 })
             except Exception:
                 continue
     except Exception as e:
-        print(f"[WARN] RSS error {name}: {e}")
+        print("[WARN] RSS error {}: {}".format(name, e))
     return results
 
 
-def format_telegram_message(item: dict) -> str:
-    """
-    Formatea la noticia para Telegram con HTML.
-    Límite de Telegram: 4096 chars por mensaje.
-    """
+def format_telegram_message(item):
     alert_emoji = get_alert_emoji(item["title"])
     coin_emoji  = get_coin_emoji(item["title"])
-    now_str     = item["pub"].strftime("%H:%M UTC")
+    pub_str     = item["pub"].strftime("%H:%M UTC")
+    heat        = "🔥" * min(int(item["score"] / 3), 5)
 
-    # Línea de score → barras de calor
-    heat = "🔥" * min(int(item["score"] / 3), 5)
+    price_line = ""
+    cg_id = detect_coin(item["title"])
+    if cg_id:
+        price_data = get_price(cg_id)
+        if price_data:
+            p  = format_price(price_data["price"])
+            ch = format_change(price_data["change_24h"])
+            price_line = "💰 Precio actual: <b>{}</b>  {} (24h)\n".format(p, ch)
 
     msg = (
-        f"{alert_emoji} {coin_emoji} <b>{item['title']}</b>\n\n"
-        f"📊 Impacto estimado: {heat} (score: {item['score']})\n"
-        f"📰 Fuente: {item['emoji']} {item['source']}\n"
-        f"🕐 {now_str}\n\n"
-        f"🔗 <a href=\"{item['url']}\">Leer noticia completa →</a>"
+        "{} {} <b>{}</b>\n\n"
+        "{}"
+        "📊 Impacto estimado: {} (score: {})\n"
+        "📰 Fuente: {} {}\n"
+        "🕐 {}\n\n"
+        "🔗 <a href=\"{}\">Leer noticia completa →</a>"
+    ).format(
+        alert_emoji, coin_emoji, item["title"],
+        price_line,
+        heat, item["score"],
+        item["emoji"], item["source"],
+        pub_str,
+        item["url"]
     )
     return msg
 
 
-def send_telegram(message: str) -> bool:
-    """Envía un mensaje al bot de Telegram. Retorna True si éxito."""
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+def send_telegram(message):
+    url = "https://api.telegram.org/bot{}/sendMessage".format(TELEGRAM_TOKEN)
     payload = {
         "chat_id":    TELEGRAM_CHAT_ID,
         "text":       message,
@@ -295,77 +297,61 @@ def send_telegram(message: str) -> bool:
         resp = requests.post(url, json=payload, timeout=15)
         if resp.status_code == 200:
             return True
-        else:
-            print(f"[ERROR] Telegram: {resp.status_code} – {resp.text[:200]}")
-            return False
+        print("[ERROR] Telegram: {} - {}".format(resp.status_code, resp.text[:200]))
+        return False
     except Exception as e:
-        print(f"[ERROR] Telegram request failed: {e}")
+        print("[ERROR] Telegram request failed: {}".format(e))
         return False
 
 
-def send_header(count: int):
-    """Envía encabezado cuando hay noticias nuevas."""
+def send_header(count):
     now = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
     msg = (
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🤖 <b>CRYPTO INTEL BOT</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📬 {count} noticia(s) de alto impacto\n"
-        f"🕐 Actualización: {now}"
-    )
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "🤖 <b>CRYPTO INTEL BOT v2</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "📬 {} noticia(s) de alto impacto\n"
+        "🕐 Actualización: {}"
+    ).format(count, now)
     send_telegram(msg)
 
 
-def send_no_news():
-    """Envía aviso silencioso si no hay noticias relevantes (solo en modo verbose)."""
-    # Comentar si no quieres mensajes cuando no hay noticias
-    pass
-
-
-# ══════════════════════════════════════════════════════════
-#  MAIN
-# ══════════════════════════════════════════════════════════
+# ══ MAIN ════════════════════════════════════════════════════
 
 def main():
     print("=" * 55)
-    print("  CRYPTO INTEL BOT – Iniciando ejecución")
-    print(f"  {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
+    print("  CRYPTO INTEL BOT v2 - Iniciando ejecucion")
+    print("  " + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"))
     print("=" * 55)
 
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=LOOK_BACK_HOURS)
-    all_news: list[dict] = []
-    seen_ids: set[str]   = set()
+    cutoff   = datetime.now(timezone.utc) - timedelta(hours=LOOK_BACK_HOURS)
+    all_news = []
+    seen_ids = set()
 
-    # ── RSS Feeds (13 fuentes gratuitas) ──────────────────
     for name, url, weight, emoji in RSS_SOURCES:
-        print(f"[INFO] Feed: {name}...")
+        print("[INFO] Feed: {}...".format(name))
         items = fetch_rss(name, url, weight, emoji, cutoff)
-        print(f"       → {len(items)} artículos recientes")
+        print("       -> {} articulos recientes".format(len(items)))
         all_news.extend(items)
 
-    # ── 3. Deduplicar ─────────────────────────────────────
     unique_news = []
     for item in all_news:
         if item["id"] not in seen_ids:
             seen_ids.add(item["id"])
             unique_news.append(item)
 
-    print(f"\n[INFO] Total artículos únicos: {len(unique_news)}")
+    print("\n[INFO] Total articulos unicos: {}".format(len(unique_news)))
 
-    # ── 4. Filtrar por score mínimo ───────────────────────
     hot_news = [n for n in unique_news if n["score"] >= MIN_SCORE]
     hot_news.sort(key=lambda x: x["score"], reverse=True)
-
-    print(f"[INFO] Noticias sobre umbral (score≥{MIN_SCORE}): {len(hot_news)}")
+    print("[INFO] Noticias sobre umbral (score>={}): {}".format(MIN_SCORE, len(hot_news)))
 
     if not hot_news:
-        print("[INFO] Sin noticias relevantes en esta hora. Bot silencioso.")
-        send_no_news()
+        print("[INFO] Sin noticias relevantes. Bot silencioso.")
         return
 
-    # ── 5. Limitar y enviar ───────────────────────────────
     to_send = hot_news[:MAX_NEWS_PER_RUN]
-    print(f"[INFO] Enviando {len(to_send)} noticias a Telegram...\n")
+    print("[INFO] Enviando {} noticias a Telegram...\n".format(len(to_send)))
 
     send_header(len(to_send))
     time.sleep(1)
@@ -374,13 +360,15 @@ def main():
     for i, item in enumerate(to_send, 1):
         msg = format_telegram_message(item)
         ok  = send_telegram(msg)
-        status = "✅" if ok else "❌"
-        print(f"  {status} [{i}/{len(to_send)}] {item['title'][:70]}  (score: {item['score']})")
+        status = "OK" if ok else "FAIL"
+        print("  [{}] [{}/{}] {}  (score: {})".format(
+            status, i, len(to_send), item["title"][:60], item["score"]
+        ))
         if ok:
             sent += 1
-        time.sleep(1.2)  # Rate limit de Telegram: máx 30 msg/seg
+        time.sleep(1.5)
 
-    print(f"\n[DONE] {sent}/{len(to_send)} noticias enviadas correctamente.")
+    print("\n[DONE] {}/{} noticias enviadas.".format(sent, len(to_send)))
     print("=" * 55)
 
 
