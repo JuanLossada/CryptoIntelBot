@@ -96,7 +96,7 @@ CRITICAL_KEYWORDS = [
     "hack", "hacked", "exploit", "exploited", "stolen", "breach",
     "ban", "banned", "sec charges", "sec sues", "arrest", "arrested",
     "bankrupt", "bankruptcy", "insolvent", "collapse", "collapsed",
-    "all-time high", "ath", "rate cut", "rate hike", "fomc",
+    "all-time high", "ath", "rate cut", "rate hike",
     "spot etf approved", "etf approved", "etf rejected",
     "listed on coinbase", "listed on binance",
     "emergency", "halving",
