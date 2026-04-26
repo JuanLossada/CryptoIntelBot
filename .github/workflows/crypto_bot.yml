@@ -36,7 +36,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Automatic/bot_state.json
+          [ -f Automatic/bot_state.json ] && git add Automatic/bot_state.json || true
           git diff --staged --quiet || git commit -m "chore: update bot state [skip ci]"
           git pull --rebase origin main
           git push
