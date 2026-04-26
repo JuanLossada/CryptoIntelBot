@@ -41,9 +41,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ══ CONFIG ═════════════════════════════════════════════════════════════════════
-TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
-BOT_VERSION    = "v1.0"
-START_TIME     = datetime.now(timezone.utc)
+TELEGRAM_TOKEN     = os.environ["TELEGRAM_TOKEN"]
+COINGECKO_API_KEY  = os.environ.get("COINGECKO_API_KEY", "")
+BOT_VERSION        = "v1.0"
+START_TIME         = datetime.now(timezone.utc)
 
 # Request timeout for all external APIs (seconds)
 API_TIMEOUT = 10
@@ -141,7 +142,10 @@ def fetch_price(coin_id: str) -> dict | None:
                 "vs_currencies":      "usd",
                 "include_24hr_change": "true",
             },
-            headers={"Accept": "application/json"},
+            headers={
+                "Accept":             "application/json",
+                "x-cg-demo-api-key":  COINGECKO_API_KEY,
+            },
             timeout=API_TIMEOUT,
         )
         if resp.status_code != 200:
@@ -167,7 +171,10 @@ def fetch_prices_batch(ids: list[str]) -> dict[str, dict]:
                 "vs_currencies":      "usd",
                 "include_24hr_change": "true",
             },
-            headers={"Accept": "application/json"},
+            headers={
+                "Accept":             "application/json",
+                "x-cg-demo-api-key":  COINGECKO_API_KEY,
+            },
             timeout=API_TIMEOUT,
         )
         if resp.status_code != 200:
